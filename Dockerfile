@@ -10,6 +10,7 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 COPY . /app
 
+ENV PORT=8000
 EXPOSE 8000
 
 # Use exec form so arguments are literal and not affected by shell/env expansion
