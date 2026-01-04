@@ -41,11 +41,32 @@ async def read_root(user: UserBase):
 
     # On appel en asynchrome l'api spotify pour avoir le json
     async with httpx.AsyncClient() as client:
-        response = await client.post("https://accounts.spotify.com/api/token", data=payload, headers=headers)
+        responsePost = await client.post("https://accounts.spotify.com/api/token", data=payload, headers=headers)
 
     # Si on à une erreur d'appel api on la renvoie au front proprement
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.json())
+    if responsePost.status_code != 200:
+        raise HTTPException(status_code=responsePost.status_code, detail=responsePost.json())
+
+    # On met en json la reponse avec : access token, refresh token, etc...
+    responseJsonPost = responsePost.json()
+
+    # -------------
+    
+    # On construit le header avec l'authorization
+    user_headers = {
+            "Authorization": f"Bearer {responseJsonPost['access_token']}"
+            }
+
+    # On appel en asynchrome l'api spotify pour avoir le json
+    async with httpx.AsyncClient() as client:
+        responseGet = await client.get("https://api.spotify.com/v1/me", headers=user_headers)
+
+    # On met en json la reponse avec des infos user, dont l'email
+    responseJsonGet = responseGet.json()
+
+    # -------------
+
+    reponse = responseJsonPost | responseJsonGet
 
     # On returne le json de reponse avec : access token, refresh token, etc...
-    return response.json()
+    return reponse
