@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 
 from dotenv import load_dotenv
@@ -7,6 +7,11 @@ import base64
 import httpx
 
 from schemas.user import UserBase
+
+from database import engine, get_db, Base
+from database_models import MusicService,User,Playlist
+from schemas.user import UserBase
+from sqlalchemy.orm import Session
 
 load_dotenv(dotenv_path="dev.env")
 
@@ -21,7 +26,8 @@ def read_root():
     return " le back marche"
 
 @app.post("/login/")
-async def read_root(user: UserBase):
+async def read_root(user: UserBase, db: Session = Depends(get_db)):
+    #Depends(get_db) crée une session de base de donnée et la ferme à la fin, c'est propre à FastAPI
 
     # On construit le header avec les bonnes choses : uath en base 64, et un content-type
     auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
