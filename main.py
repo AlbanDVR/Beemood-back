@@ -9,9 +9,12 @@ import httpx
 from schemas.user import UserBase
 
 from database import engine, get_db, Base
-from database_models import MusicService,User,Playlist
+from database_models import MusicService,Users,Playlist
 from schemas.user import UserBase
 from sqlalchemy.orm import Session
+
+from APIFeatures import user_connection
+
 
 load_dotenv(dotenv_path="dev.env")
 
@@ -73,6 +76,11 @@ async def read_root(user: UserBase, db: Session = Depends(get_db)):
     # -------------
 
     reponse = responseJsonPost | responseJsonGet
+
+    #mise à jour de la BDD avec les données envoyées par Spotify
+    user_connection(db,reponse)
+
+
 
     # On returne le json de reponse avec : access token, refresh token, etc...
     return reponse
