@@ -13,16 +13,17 @@ def user_connection(db:Session, api_response:str):
     """
 
     #Sélection de la ligne Users dont l'id corresponds au mail du json api_response
-    stmt = select(Users).where(Users.id == api_response.get("email"))
+    stmt = select(Users).where(Users.spotify_user_id == api_response.get("id"))
     user = db.execute(stmt).scalar()
 
     #si la ligne est None: l'utilisateur est inexistant donc on l'ajoute
     if (user == None):
 
         new_connection = Users(
-            id = api_response.get("email"),
+            spotify_user_id = api_response.get("id"),
             spotify_access_token = api_response.get("access_token"),
-            spotify_refresh_token = api_response.get("refresh_token")
+            spotify_refresh_token = api_response.get("refresh_token"),
+            auth_token = api_response.get("session_token")
         )
         #ajout de la connexion à la BDD
         db.add(new_connection)
@@ -32,10 +33,15 @@ def user_connection(db:Session, api_response:str):
     else:
         stmt = (
             update(Users)
-            .where(Users.id == api_response.get("email"))
-            .values(spotify_access_token = api_response.get("access_token"),spotify_refresh_token = api_response.get("refresh_token"))
+            .where(Users.spotify_user_id == api_response.get("id"))
+            .values(spotify_access_token = api_response.get("access_token"),spotify_refresh_token = api_response.get("refresh_token"), auth_token = api_response.get("session_token"))
         )
 
-        #éxecution du update
+        #éxecution du updateF
         user = db.execute(stmt)
         db.commit()
+        
+    #return uuid and joined status of the user whether new or existing
+    stmt = select(Users).where(Users.spotify_user_id == api_response.get("id"))
+    user = db.execute(stmt).scalar()
+    return user.join_time, user.id

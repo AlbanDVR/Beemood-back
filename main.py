@@ -1,17 +1,19 @@
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
+from jwt import PyJWTError
 
 from dotenv import load_dotenv
 import os
 import base64
 import httpx
 
-from schemas.user import UserBase
+from schemas.user import UserBase, LoginResponse
 
-from database import engine, get_db, Base
-from database_models import MusicService,Users,Playlist
-from schemas.user import UserBase
+from database import get_db
+from database_models import Users
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from APIFeatures import user_connection
 
@@ -20,16 +22,47 @@ load_dotenv(dotenv_path="dev.env")
 
 app = FastAPI()
 
+security = HTTPBearer()
+
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+
+# Authentication dependency
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Users:
+    """
+    Vérifie le token de session et retourne l'utilisateur authentifié.
+    Le token doit être passé dans le header Authorization: Bearer <token>
+    """
+    token = credentials.credentials
+    
+    try:
+        # Décoder le JWT pour récupérer l'email
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+        user_email = payload.get("user_email")
+        
+        if user_email is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+            
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    # Vérifier que le token existe dans la base de données
+    stmt = select(Users).where(Users.auth_token == token)
+    user = db.execute(stmt).scalar()
+    
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found or token invalid")
+    
+    return user
 
 @app.get("/")
-def read_root():
+def health_check():
     return " le back marche"
 
-@app.post("/login/")
-async def read_root(user: UserBase, db: Session = Depends(get_db)):
+@app.post("/login/", response_model=LoginResponse)
+async def login(user: UserBase, db: Session = Depends(get_db)):
     #Depends(get_db) crée une session de base de donnée et la ferme à la fin, c'est propre à FastAPI
 
     # On construit le header avec les bonnes choses : uath en base 64, et un content-type
@@ -74,13 +107,35 @@ async def read_root(user: UserBase, db: Session = Depends(get_db)):
     responseJsonGet = responseGet.json()
 
     # -------------
+    
+    #On génère notre propre token de session
+    
+    token = jwt.encode({"user_email": responseJsonGet['email']}, os.getenv("JWT_SECRET_KEY"), algorithm="HS256")
 
-    reponse = responseJsonPost | responseJsonGet
+    reponse = responseJsonPost | responseJsonGet | {"session_token": token}
 
     #mise à jour de la BDD avec les données envoyées par Spotify
-    user_connection(db,reponse)
-
-
+    joined, uuid = user_connection(db,reponse)
 
     # On returne le json de reponse avec : access token, refresh token, etc...
-    return reponse
+    return {
+        "display_name": responseJsonGet['display_name'],
+        "email": responseJsonGet['email'],
+        "session_token": token,
+        "external_urls": responseJsonGet['external_urls'],
+        "images": responseJsonGet['images'],
+        "joined": joined,
+        "user_id": str(uuid)
+    }
+
+# Exemple d'endpoint protégé
+@app.get("/me")
+async def get_current_user_info(current_user: Users = Depends(get_current_user)):
+    """
+    Endpoint protégé qui retourne les informations de l'utilisateur authentifié.
+    Nécessite un Bearer token valide dans le header Authorization.
+    """
+    return {
+        "user_id": str(current_user.id),
+        "join_time": current_user.join_time
+    }

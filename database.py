@@ -1,9 +1,13 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path="dev.env")
 
 #mettre dans un .env
-DATABASE_URL = "postgresql://beemood:beemood@db:5432/beemood"
+DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@db:5432/{os.getenv('POSTGRES_DB')}"
 
 engine = create_engine(DATABASE_URL)
 #engine permet la communication avec la base de données postgresSQL
