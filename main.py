@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWTError
 
@@ -21,6 +22,18 @@ from APIFeatures import user_connection
 load_dotenv(dotenv_path="dev.env")
 
 app = FastAPI()
+
+# CORS configuration: allow Vite dev server by default
+allowed_origins = [
+    "http://127.0.0.1:8080",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 security = HTTPBearer()
 
@@ -60,6 +73,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 @app.get("/")
 def health_check():
     return " le back marche"
+
+# Preflight handler for CORS
+@app.options("/{full_path:path}")
+async def preflight_handler(full_path: str):
+    return {"status": "ok"}
 
 @app.post("/login/", response_model=LoginResponse)
 async def login(user: UserBase, db: Session = Depends(get_db)):
