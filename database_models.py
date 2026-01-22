@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, ForeignKey, text
+from sqlalchemy import Integer, Column, String, Date, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,13 +22,15 @@ class Users(Base):
     # server_default permet d'utiliser le DEFAULT CURRENT_DATE de Postgres
     join_time = Column("jointime", Date, server_default=func.current_date())
 
-class Playlist(Base):
+class Playlists(Base):
     __tablename__ = "playlists"
 
-    id = Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column("id", String(255), primary_key=True)
     title = Column("title", String(255))
 
-    tracks = Column("tracks", ARRAY(String))
+    descr = Column("descr", String(255))
+    duration = Column("duration", Integer)
+    redirection_service = Column("redirectionservice", String(255))
     
     # Clés étrangères
     author_id = Column("author", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))

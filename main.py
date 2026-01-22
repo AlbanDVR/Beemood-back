@@ -18,7 +18,7 @@ from database_models import Users
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from APIFeatures import user_connection 
+from APIFeatures import user_connection, db_playlist_update
 
 load_dotenv(dotenv_path=".env")
 
@@ -92,7 +92,7 @@ async def get_current_user_info(current_user: Users = Depends(get_current_user))
 async def preflight_handler(full_path: str):
     return {"status": "ok"}
 
-@app.post("/login/", response_model=LoginResponse)
+@app.post("/login", response_model=LoginResponse)
 async def login(user: UserBase, db: Session = Depends(get_db)):
     #Depends(get_db) crée une session de base de donnée et la ferme à la fin, c'est propre à FastAPI
 
@@ -162,7 +162,7 @@ async def login(user: UserBase, db: Session = Depends(get_db)):
     }
 
 @app.post("/playlist")
-async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user)):
+async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
 
     async with httpx.AsyncClient() as client:
         
@@ -238,6 +238,9 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         }
 
         response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
+        
+        #updating the data base with the data
+        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, time, "Spotify")
 
         # Si on à une erreur d'appel api on la renvoie au front proprement
         if response_ajout_playlist.status_code not in [200, 201]:
