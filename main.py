@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWTError
+import random
 
 from dotenv import load_dotenv
 import os
@@ -10,16 +11,16 @@ import base64
 import httpx
 
 from schemas.user import UserBase, LoginResponse
+from schemas.playlist import PlaylistBase
 
 from database import get_db
 from database_models import Users
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from APIFeatures import user_connection
+from APIFeatures import user_connection 
 
-
-load_dotenv(dotenv_path="dev.env")
+load_dotenv(dotenv_path=".env")
 
 app = FastAPI()
 
@@ -74,6 +75,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 def health_check():
     return " le back marche"
 
+# Exemple d'endpoint protégé
+@app.get("/me")
+async def get_current_user_info(current_user: Users = Depends(get_current_user)):
+    """
+    Endpoint protégé qui retourne les informations de l'utilisateur authentifié.
+    Nécessite un Bearer token valide dans le header Authorization.
+    """
+    return {
+        "user_id": str(current_user.id),
+        "join_time": current_user.join_time
+    }
+
 # Preflight handler for CORS
 @app.options("/{full_path:path}")
 async def preflight_handler(full_path: str):
@@ -82,6 +95,8 @@ async def preflight_handler(full_path: str):
 @app.post("/login/", response_model=LoginResponse)
 async def login(user: UserBase, db: Session = Depends(get_db)):
     #Depends(get_db) crée une session de base de donnée et la ferme à la fin, c'est propre à FastAPI
+
+    # ----- APPEL SPOTIFY - Token -----
 
     # On construit le header avec les bonnes choses : uath en base 64, et un content-type
     auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
@@ -110,7 +125,7 @@ async def login(user: UserBase, db: Session = Depends(get_db)):
     # On met en json la reponse avec : access token, refresh token, etc...
     responseJsonPost = responsePost.json()
 
-    # -------------
+    # ----- APPEL SPOTIFY - Infos Users -----
     
     # On construit le header avec l'authorization
     user_headers = {
@@ -146,14 +161,88 @@ async def login(user: UserBase, db: Session = Depends(get_db)):
         "user_id": str(uuid)
     }
 
-# Exemple d'endpoint protégé
-@app.get("/me")
-async def get_current_user_info(current_user: Users = Depends(get_current_user)):
-    """
-    Endpoint protégé qui retourne les informations de l'utilisateur authentifié.
-    Nécessite un Bearer token valide dans le header Authorization.
-    """
-    return {
-        "user_id": str(current_user.id),
-        "join_time": current_user.join_time
-    }
+@app.post("/playlist")
+async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user)):
+
+    async with httpx.AsyncClient() as client:
+        
+        # ----- APPEL SPOTIFY - Création Playlist -----
+        print("--Appel création playlist--")
+
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "name": info_playlist.name,
+            "public": False,
+            "description": f"Playlist {info_playlist.name} - genre : {info_playlist.genre} - durée : {info_playlist.duration} - créée via Beemood"
+        }
+
+        response_creation_playlist = await client.post(f"https://api.spotify.com/v1/users/{current_user.spotify_user_id}/playlists", json=payload, headers=headers)
+        
+        # Si on à une erreur d'appel api on la renvoie au front proprement
+        if response_creation_playlist.status_code not in [200, 201]:
+            raise HTTPException(status_code=response_creation_playlist.status_code, detail=response_creation_playlist.json())
+        
+        response_creation_playlist = response_creation_playlist.json()
+
+        # ----- APPEL SPOTIFY - Get des tracks -----
+        print("--Appel des tracks --")
+
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}"
+        }
+
+        all_track=[]
+        for i in range(5):
+            params = {
+                "q": f"genre{info_playlist.genre}",
+                "type": "track",
+                "offset": random.randint(0, 1000),
+                "limit": 50
+            }
+
+            response = await client.get("https://api.spotify.com/v1/search", params=params, headers=headers)
+
+            # Si on à une erreur d'appel api on la renvoie au front proprement
+            if response.status_code not in [200, 201]:
+                raise HTTPException(status_code=response.status_code)
+
+            response = response.json()
+            all_track.extend(response["tracks"]["items"])
+        
+        # Récupération des tracks en fonction du temps
+        random.shuffle(all_track)
+
+        time = 0
+        i = 0
+        tracks = []
+        while time < int(info_playlist.duration) : 
+            tracks.append(all_track[i]["uri"])
+            time += all_track[i]["duration_ms"]
+            i += 1
+        
+        # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
+        print("--Appel ajout playlist--")
+
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "position": 0,
+            "uris": tracks
+        }
+
+        response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
+
+        # Si on à une erreur d'appel api on la renvoie au front proprement
+        if response_ajout_playlist.status_code not in [200, 201]:
+            raise HTTPException(status_code=response_ajout_playlist.status_code, detail=response_ajout_playlist.json())
+        
+        response_ajout_playlist = response_ajout_playlist.json()
+
+        return "ok"
