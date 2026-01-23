@@ -249,3 +249,22 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         response_ajout_playlist = response_ajout_playlist.json()
 
         return "ok"
+
+@app.get("/playlists")
+async def playlists(current_user: Users = Depends(get_current_user)):
+    print(current_user.spotify_access_token)
+    headers = {
+        "Authorization": f"Bearer {current_user.spotify_access_token}"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://api.spotify.com/v1/me/playlists",
+            headers=headers
+        )
+    responseJson = response.json()
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    return responseJson
