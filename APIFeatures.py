@@ -1,6 +1,6 @@
 from sqlalchemy import select,update
 from database_models import Users, Playlists, MusicService
-
+import time
 from sqlalchemy.orm import Session
 
 
@@ -23,7 +23,9 @@ def user_connection(db:Session, api_response:str):
             spotify_user_id = api_response.get("id"),
             spotify_access_token = api_response.get("access_token"),
             spotify_refresh_token = api_response.get("refresh_token"),
-            auth_token = api_response.get("session_token")
+            spotify_expires_in = api_response.get("expires_in"),
+            auth_token = api_response.get("session_token"),
+            spotify_time_token_created = time.time()
         )
         #ajout de la connexion à la BDD
         db.add(new_connection)
@@ -34,7 +36,7 @@ def user_connection(db:Session, api_response:str):
         stmt = (
             update(Users)
             .where(Users.spotify_user_id == api_response.get("id"))
-            .values(spotify_access_token = api_response.get("access_token"),spotify_refresh_token = api_response.get("refresh_token"), auth_token = api_response.get("session_token"))
+            .values(spotify_access_token = api_response.get("access_token"),spotify_refresh_token = api_response.get("refresh_token"), auth_token = api_response.get("session_token"), spotify_expires_in = api_response.get("expires_in"), spotify_time_token_created = time.time())
         )
 
         #éxecution du updateF

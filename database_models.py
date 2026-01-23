@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, Column, String, Date, ForeignKey, text
+from sqlalchemy import Integer, Column, String, Date, ForeignKey, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,6 +18,8 @@ class Users(Base):
     spotify_user_id = Column("spotifyuserid", String, nullable=True)
     spotify_access_token = Column("spotifyaccesstoken", String, nullable=True)
     spotify_refresh_token = Column("spotifyrefreshtoken", String, nullable=True)
+    spotify_expires_in = Column("spotifyexpiresin", Integer, nullable=True)
+    spotify_time_token_created = Column("spotifytimetokencreated", TIMESTAMP, nullable=True)
     auth_token = Column("authtoken", String, nullable=True)
     # server_default permet d'utiliser le DEFAULT CURRENT_DATE de Postgres
     join_time = Column("jointime", Date, server_default=func.current_date())

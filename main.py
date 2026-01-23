@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWTError
 import random
+from datetime import datetime
+import time
 
 from dotenv import load_dotenv
 import os
@@ -70,6 +72,66 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=401, detail="User not found or token invalid")
     
     return user
+
+async def refresh_token(db : Session,current_user: Users):
+    print("--- Appel refresh token ---")
+
+    time_expires_in = current_user.spotify_expires_in
+    time_create_token = current_user.spotify_time_token_created
+
+    if time_create_token + time_expires_in < time.time():
+        print("--- Refresh Token ---")
+
+        auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
+        auth_base64 = base64.b64encode(auth_string.encode()).decode()
+
+        headers = {
+            "Authorization": f"Basic {auth_base64}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": current_user.spotify_refresh_token,
+            "client_id": CLIENT_ID
+        }
+
+        async with httpx.AsyncClient() as client:
+            responsePost = await client.post("https://accounts.spotify.com/api/token", data=payload, headers=headers)
+
+        if responsePost.status_code not in [200, 201]:
+            raise HTTPException(status_code=responsePost.status_code, detail=responsePost.json())
+        
+        responsePost = responsePost.json()
+
+        #reconstruction de l'user
+        if "refresh_token" not in responsePost:
+            responsePost["refresh_token"] = current_user.spotify_refresh_token
+
+        reponse = {
+            "id" : current_user.spotify_user_id,
+            "access_token" : responsePost["access_token"],
+            "refresh_token" : responsePost["refresh_token"],
+            "expires_in" : responsePost["expires_in"],
+            "session_token" : current_user.auth_token
+        }
+
+        user_connection(db, reponse)
+
+        # mise à jour du current_user
+        current_user.spotify_access_token = reponse["access_token"]
+        current_user.spotify_refresh_token = reponse["refresh_token"]
+        current_user.spotify_expires_in = reponse["expires_in"]
+        current_user.spotify_time_token_created = int(time.time())
+
+        if "refresh_token" in responsePost:
+            current_user.spotify_refresh_token = responsePost["refresh_token"]
+        
+        db.commit()
+        db.refresh(current_user)
+    
+    else :
+        print("--- No Refresh Token ---")
 
 @app.get("/")
 def health_check():
@@ -164,11 +226,13 @@ async def login(user: UserBase, db: Session = Depends(get_db)):
 @app.post("/playlist")
 async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
 
+    await refresh_token(db, current_user)
+
     async with httpx.AsyncClient() as client:
         
         # ----- APPEL SPOTIFY - Création Playlist -----
         print("--Appel création playlist--")
-
+        
         headers = {
             "Authorization": f"Bearer {current_user.spotify_access_token}",
             "Content-Type": "application/json"
@@ -215,7 +279,7 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         
         # Récupération des tracks en fonction du temps
         random.shuffle(all_track)
-
+        
         time = 0
         i = 0
         tracks = []
