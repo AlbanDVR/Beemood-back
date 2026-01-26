@@ -11,12 +11,13 @@ from dotenv import load_dotenv
 import os
 import base64
 import httpx
+#import google.generativeai as genai
 
 from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
 
 from database import get_db
-from database_models import Users
+from database_models import Users, Playlists
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -314,8 +315,8 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
 
         return "ok"
 
-@app.get("/playlists")
-async def playlists(current_user: Users = Depends(get_current_user)):
+@app.get("/playlists-spotify")
+async def get_spotify_playlists(current_user: Users = Depends(get_current_user)):
     print(current_user.spotify_access_token)
     headers = {
         "Authorization": f"Bearer {current_user.spotify_access_token}"
@@ -332,3 +333,8 @@ async def playlists(current_user: Users = Depends(get_current_user)):
         raise HTTPException(status_code=response.status_code, detail=response.text)
 
     return responseJson
+
+@app.get("/playlists-bdd")
+def get_bdd_playlists(current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
+    beemoodPlaylists = db.query(Playlists).filter(Playlists.author_id == current_user.id).all()
+    return beemoodPlaylists
