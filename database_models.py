@@ -37,3 +37,17 @@ class Playlists(Base):
     # Clés étrangères
     author_id = Column("author", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     service_name = Column("musicservice", String(255), ForeignKey("musicservices.name", ondelete="SET NULL"))
+
+class Stat(Base):
+    __tablename__ = "stat"
+
+    id = Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+
+    playlist_number = Column("playlistnumber", Integer, nullable=True)
+    track_number = Column("tracknumber", Integer, nullable=True)
+    listening_time = Column("listeningtime", Integer, nullable=True)
+    connection_number = Column("connectionnumber", Integer, nullable=True)
+    favorite_genre = Column("favoritegenre", String, nullable=True)
+
+    # foreign key
+    user_id = Column("userid", UUID(as_uuid=True), ForeignKey("users.id",ondelete="CASCADE"))

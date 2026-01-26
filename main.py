@@ -282,14 +282,14 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         random.shuffle(all_track)
         
         time = 0
-        i = 0
+        playlist_number = 0
         tracks = []
         while time < int(info_playlist.duration) :
-            duration_ms = all_track[i]["duration_ms"]
+            duration_ms = all_track[playlist_number]["duration_ms"]
             if duration_ms < 480000: # 8 minutes
-                tracks.append(all_track[i]["uri"])
+                tracks.append(all_track[playlist_number]["uri"])
                 time += duration_ms
-            i += 1
+            playlist_number += 1
         
         # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
         print("--Appel ajout playlist--")
@@ -307,7 +307,7 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
         
         #updating the data base with the data
-        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, time, "Spotify")
+        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, time, "Spotify", playlist_number)
 
         # Si on à une erreur d'appel api on la renvoie au front proprement
         if response_ajout_playlist.status_code not in [200, 201]:
