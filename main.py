@@ -284,9 +284,11 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         time = 0
         i = 0
         tracks = []
-        while time < int(info_playlist.duration) : 
-            tracks.append(all_track[i]["uri"])
-            time += all_track[i]["duration_ms"]
+        while time < int(info_playlist.duration) :
+            duration_ms = all_track[i]["duration_ms"]
+            if duration_ms < 480000: # 8 minutes
+                tracks.append(all_track[i]["uri"])
+                time += duration_ms
             i += 1
         
         # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
