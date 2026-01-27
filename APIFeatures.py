@@ -125,7 +125,8 @@ def db_playlist_update(db: Session,response_creation_playlist, info_playlist, cu
             duration = time,
             redirection_service = response_creation_playlist.get("uri"),
             author_id = current_user.id,
-            service_name = service_used 
+            service_name = service_used,
+            track_nb = tracks_number
         )
 
     db.add(new_playlist)

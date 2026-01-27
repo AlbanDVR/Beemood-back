@@ -41,6 +41,7 @@ class Playlists(Base):
 
     descr = Column("descr", String(255))
     duration = Column("duration", Integer)
+    track_nb = Column("tracknb", Integer)
     redirection_service = Column("redirectionservice", String(255))
     
     # Clés étrangères
