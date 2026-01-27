@@ -1,5 +1,3 @@
-import pathlib
-import textwrap
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -8,8 +6,8 @@ from pydantic import BaseModel
 load_dotenv()
 
 class ScriptRequest(BaseModel):
-    instruction: str
     script: str
+    history: str
 
 GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -24,4 +22,3 @@ prompt = "Tu es un extracteur de données spécialisé pour Spotify. " \
 "réponds lui aussi normalement que possible (pas d'émoji). Si sa requête ne concerne pas l'application, dis lui " \
 "'Je suis désolé, je ne peux pas répondre à votre demande'." \
 
-response = model.generate_content(prompt)
