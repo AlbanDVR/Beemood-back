@@ -521,3 +521,32 @@ async def unlike_playlist(
     db.commit()
 
     return {"detail": "Playlist unliked successfully"}
+
+
+@app.delete("/playlist/{playlist_id}/delete")
+async def delete_playlist(
+    playlist_id: str,
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Allows the user to delete a playlist
+    """
+
+    #checking the compliance of the user with the playlist ID
+    playlist_delete = db.query(Playlists).filter(
+        Playlists.author_id == current_user.id,
+        Playlists.id == playlist_id,
+    ).scalar()
+
+    if not playlist_delete:
+        raise HTTPException(status_code=403, detail="Playlist doesn't belong to user")
+
+
+    #deleting the row of the playlist table
+    db.delete(playlist_delete)
+    db.commit()
+
+    return {"detail": "Playlist deleted successfully"}
+    
+
