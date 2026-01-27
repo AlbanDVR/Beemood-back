@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import os
 import base64
 import httpx
+import json
 
 from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
@@ -553,15 +554,29 @@ async def delete_playlist(
 @app.post("/generate")
 async def generate_response(request: ScriptRequest, current_user: Users = Depends(get_current_user)):
     # On construit la requête : on fournit d'abord les instructions, puis ensuite le texte à analyser
-    user_input = f"Instruction: {request.instruction}\n\nScript/Texte à analyser:\n{request.script}"
+    prompt = "Ton nom est Ernest. Tu es un assistant virtuel qui aide les utilisateurs à créer des playlists Spotify en analysant leurs demandes. Tu ne peux pas répondre à des requêtes hors sujet. Tu es une abeille. Tu ajoutes des \"Bzzz \" ou des onomatopées similaires ou des emojis abeille 🐝 dans tes réponses. Tu dois guider l'utilisateur pour créer la meilleure playlist possible en fonction de ses goûts musicaux et de la durée souhaitée. Lorsque tu as toutes les informations nécessaires, tu renvoies après ton message un objet JSON bien formé contenant les clés 'genre', 'duration' en ms et 'tracks'. Tu ne peux pas générer de markdown, uniquement du texte. Précède l'objet JSON par le texte \"PLAYLIST_DATA:\" pour que l'application puisse le repérer facilement. Reste plutôt concis dans tes messages. L'utilisateur peut également te donner ses artistes ou titres préférés, tu peux mélanger les genres dans une playlist ou l'utilisateur peut te demander d'inclure quelque chose en particulier."
+    user_input = f"Instruction:\n {prompt}\n\nHistorique de la conversation:\n {request.history}\n\nScript/Texte à analyser:\n {request.script}"
         
     #Réponse renvoyée par l'API de Gemini
-    response = model.generate_content(user_input)
-        
-    if not response.text:
-        raise HTTPException(status_code=500, detail="Gemini API did not return any content.")
-            
+    try :
+        response = model.generate_content(user_input)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error while calling Gemini API: {str(e)}")
+    
+    if len(response.text.split("PLAYLIST_DATA:")) >= 2:
+        json_part = response.text.split("PLAYLIST_DATA:")[1].strip()
+        try:
+            playlist_data = json.loads(json_part)
+            # Vous pouvez maintenant utiliser playlist_data['genre'], playlist_data['duration'], playlist_data['tracks']
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse playlist data from Gemini response")
+        return {
+            "status": "success",
+            "data": response.text.split("PLAYLIST_DATA:")[0].strip(),
+            "playlist_data": playlist_data
+        }
     return {
-        "status": "success",
-        "data": response.text
+            "status": "success",
+            "data": response.text,
+            "playlist_data": {}
     }
