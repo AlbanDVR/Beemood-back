@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +11,6 @@ from dotenv import load_dotenv
 import os
 import base64
 import httpx
-#import google.generativeai as genai
 
 from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 
 from APIFeatures import user_connection, db_playlist_update
+from gemini_api import ScriptRequest, model
 
 from math import *
 
@@ -549,4 +550,18 @@ async def delete_playlist(
 
     return {"detail": "Playlist deleted successfully"}
     
-
+@app.post("/generate")
+async def generate_response(request: ScriptRequest, current_user: Users = Depends(get_current_user)):
+    # On construit la requête : on fournit d'abord les instructions, puis ensuite le texte à analyser
+    user_input = f"Instruction: {request.instruction}\n\nScript/Texte à analyser:\n{request.script}"
+        
+    #Réponse renvoyée par l'API de Gemini
+    response = model.generate_content(user_input)
+        
+    if not response.text:
+        raise HTTPException(status_code=500, detail="Gemini API did not return any content.")
+            
+    return {
+        "status": "success",
+        "data": response.text
+    }
