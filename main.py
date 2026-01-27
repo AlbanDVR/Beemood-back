@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from jwt import PyJWTError
 import random
-from datetime import datetime
 import time
 
 from dotenv import load_dotenv
@@ -23,6 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.sql import func
 
 from APIFeatures import user_connection, db_playlist_update
+
+from math import *
 
 load_dotenv(dotenv_path=".env")
 
@@ -245,6 +246,83 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         # ----- APPEL SPOTIFY - Get des tracks -----
         print("--Appel des tracks --")
 
+        stats_track_number = 0
+
+        # Appel titre liké 15%
+        print("Tracks des titres likés")
+
+        timer_like = 0
+        offset = 0
+        uri_like_genre = []
+        reste_tracks = True
+        while timer_like < int(info_playlist.duration) * 0.15 and reste_tracks == True:
+
+            # Appelle des tracks dans les titre likés
+            headers = {
+                "Authorization": f"Bearer {current_user.spotify_access_token}"
+            }
+            params = {
+                "limit": 50,
+                "offset": offset
+            }
+            offset += 50
+
+            response_like = await client.get("https://api.spotify.com/v1/me/tracks", params=params, headers=headers)
+            if response_like.status_code not in [200, 201]:
+                raise HTTPException(status_code=response_like.status_code)
+
+            response_like = response_like.json()["items"]
+
+            if(len(response_like) < 50): # On vérifie que il reste des musiques
+                reste_tracks = False
+
+            # Récupérer les artistes des tracks
+            artistes_id = []
+            for i in range(len(response_like)): # Parcours toutes les tracks
+                for j in range(len(response_like[i]["track"]["artists"])): # On parcours tous les artistes d'une track
+                    artistes_id.append(response_like[i]["track"]["artists"][j]["id"]) #On récupère les ids de tous les artistes
+
+            # Check des genres des artistes
+            reponse_artistes_genre = []
+            for i in range(ceil(len(artistes_id)/50)): # On fait des appels get pour l'artiste en fonction du nombre d'artistes
+                params = {
+                    "ids": ",".join(artistes_id[:50])
+                }
+                artistes_id = artistes_id[50:] # On réduit la liste des 50 premiers utilisés
+
+                response_artistes = await client.get("https://api.spotify.com/v1/artists", params=params, headers=headers)
+                if response_artistes.status_code not in [200, 201]:
+                    raise HTTPException(status_code=response_artistes.status_code)
+
+                reponse_artistes_genre.extend(response_artistes.json()["artists"]) #On ajoute la liste d'artistes
+
+            artists_genre = []
+            for i in range(len(reponse_artistes_genre)): #On parcours tous les artistes des tracks
+                if any(info_playlist.genre in g.lower() for g in reponse_artistes_genre[i]["genres"]) and reponse_artistes_genre[i]["id"] not in artists_genre:
+                    artists_genre.append(reponse_artistes_genre[i]["id"]) #On rajoute si il est du bon genre et qu'il n'est pas déjà dans la liste
+
+            # Filtre des tracks liké par genre (via artistes)
+            tracks_like_genre = []
+            for i in range(len(response_like)): # On traverse toutes les tracks likés
+                #Récupère les artistes de la track
+                artists_current = []
+                for j in range(len(response_like[i]["track"]["artists"])): # Pour chaque tracks on récupère ces artistes
+                    artists_current.append(response_like[i]["track"]["artists"][j]["id"])
+
+                if any(item in artists_current for item in artists_genre): # On regarde si c'est un artiste du bon genre
+                    tracks_like_genre.append(response_like[i]["track"])
+
+            i = 0
+            while i < len(tracks_like_genre) and timer_like < int(info_playlist.duration) * 0.15 :
+                duration_track = tracks_like_genre[i]["duration_ms"]
+                if duration_track < 480000: # 8 minutes
+                    uri_like_genre.append(tracks_like_genre[i]["uri"])
+                    timer_like += duration_track
+                    stats_track_number += 1
+                i += 1
+
+                # Appel titre spotify
+        print("Tracks de spotify")
         headers = {
             "Authorization": f"Bearer {current_user.spotify_access_token}"
         }
@@ -266,20 +344,21 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
 
             response = response.json()
             all_track.extend(response["tracks"]["items"])
-        
+
         # Récupération des tracks en fonction du temps
         random.shuffle(all_track)
-        
-        time = 0
-        playlist_number = 0
+
+        timer_track = 0
+        i = 0
         tracks = []
-        while time < int(info_playlist.duration) :
-            duration_ms = all_track[playlist_number]["duration_ms"]
+        while timer_track < int(info_playlist.duration) - timer_like :
+            duration_ms = all_track[i]["duration_ms"]
             if duration_ms < 480000: # 8 minutes
-                tracks.append(all_track[playlist_number]["uri"])
-                time += duration_ms
-            playlist_number += 1
-        
+                tracks.append(all_track[i]["uri"])
+                timer_track += duration_ms
+                stats_track_number += 1
+            i += 1
+
         # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
         print("--Appel ajout playlist--")
 
@@ -288,15 +367,19 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
             "Content-Type": "application/json"
         }
 
+        tracks_total = tracks + uri_like_genre
+        random.shuffle(tracks_total)
+
         payload = {
             "position": 0,
-            "uris": tracks
+            "uris": tracks_total
         }
 
         response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
         
         #updating the data base with the data
-        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, time, "Spotify", playlist_number)
+        timer_total = timer_track + timer_like
+        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, timer_total, "Spotify", stats_track_number)
 
         # Si on à une erreur d'appel api on la renvoie au front proprement
         if response_ajout_playlist.status_code not in [200, 201]:
@@ -320,25 +403,25 @@ async def get_playlists(
     - spotify: playlists de l'utilisateur sur Spotify
     - mostliked: playlists les plus likées
     """
-    
+
     if source == "spotify":
         await refresh_token(db, current_user)
-        
+
         headers = {
             "Authorization": f"Bearer {current_user.spotify_access_token}"
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"https://api.spotify.com/v1/me/playlists?limit={limit}&offset={start}",
                 headers=headers
             )
-        
+
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=response.text)
-        
+
         return response.json()
-    
+
     elif source == "mostliked":
         # Récupérer les playlists triées par nombre de likes
         stmt = (
@@ -351,15 +434,15 @@ async def get_playlists(
             .limit(limit)
         )
         results = db.execute(stmt).all()
-        
+
         # Récupérer les playlists déjà likées par l'utilisateur courant
         user_liked_ids = {
-            like.playlist_id 
+            like.playlist_id
             for like in db.query(PlaylistLike.playlist_id).filter(
                 PlaylistLike.user_id == current_user.id
             ).all()
         }
-        
+
         # Construire la réponse enrichie
         return [
             {
@@ -375,19 +458,19 @@ async def get_playlists(
             }
             for playlist, author_name, like_count in results
         ]
-    
+
     elif source == "beemood":
         beemood_playlists = db.query(Playlists).filter(
             Playlists.author_id == current_user.id
         ).offset(start).limit(limit).all()
         return beemood_playlists
-    
+
     else:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid source parameter. Must be 'beemood', 'spotify', or 'mostliked'"
         )
-        
+
 @app.post("/playlist/{playlist_id}/like")
 async def like_playlist(
     playlist_id: str,
@@ -401,16 +484,16 @@ async def like_playlist(
     playlist = db.query(Playlists).filter(Playlists.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+
     # Vérifier si l'utilisateur a déjà liké cette playlist
     existing_like = db.query(PlaylistLike).filter(
         PlaylistLike.playlist_id == playlist_id,
         PlaylistLike.user_id == current_user.id
     ).scalar()
-    
+
     if existing_like:
         raise HTTPException(status_code=400, detail="Playlist already liked by the user")
-    
+
     # Créer un nouveau like
     new_like = PlaylistLike(
         playlist_id=playlist_id,
@@ -418,7 +501,7 @@ async def like_playlist(
     )
     db.add(new_like)
     db.commit()
-    
+
     return {"detail": "Playlist liked successfully"}
 
 @app.delete("/playlist/{playlist_id}/like")
@@ -435,12 +518,12 @@ async def unlike_playlist(
         PlaylistLike.playlist_id == playlist_id,
         PlaylistLike.user_id == current_user.id
     ).scalar()
-    
+
     if not existing_like:
         raise HTTPException(status_code=404, detail="Like not found for the user on this playlist")
-    
+
     # Supprimer le like
     db.delete(existing_like)
     db.commit()
-    
+
     return {"detail": "Playlist unliked successfully"}
