@@ -17,9 +17,10 @@ from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
 
 from database import get_db
-from database_models import Users, Playlists
+from database_models import Users, Playlists, PlaylistLike
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.sql import func
 
 from APIFeatures import user_connection, db_playlist_update
 
@@ -138,19 +139,7 @@ async def refresh_token(db : Session,current_user: Users):
 def health_check():
     return " le back marche"
 
-# Exemple d'endpoint protégé
-@app.get("/me")
-async def get_current_user_info(current_user: Users = Depends(get_current_user)):
-    """
-    Endpoint protégé qui retourne les informations de l'utilisateur authentifié.
-    Nécessite un Bearer token valide dans le header Authorization.
-    """
-    return {
-        "user_id": str(current_user.id),
-        "join_time": current_user.join_time
-    }
-
-# Preflight handler for CORS
+#Gestion des requêtes CORS OPTIONS
 @app.options("/{full_path:path}")
 async def preflight_handler(full_path: str):
     return {"status": "ok"}
@@ -317,26 +306,141 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
 
         return "ok"
 
-@app.get("/playlists-spotify")
-async def get_spotify_playlists(current_user: Users = Depends(get_current_user)):
-    print(current_user.spotify_access_token)
-    headers = {
-        "Authorization": f"Bearer {current_user.spotify_access_token}"
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://api.spotify.com/v1/me/playlists",
-            headers=headers
+@app.get("/playlist")
+async def get_playlists(
+    source: str = "beemood",
+    limit: int = 10,
+    start: int = 0,
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Récupère les playlists (avec pagination) selon la source spécifiée:
+    - beemood: playlists créées par l'utilisateur (default)
+    - spotify: playlists de l'utilisateur sur Spotify
+    - mostliked: playlists les plus likées
+    """
+    
+    if source == "spotify":
+        await refresh_token(db, current_user)
+        
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.spotify.com/v1/me/playlists?limit={limit}&offset={start}",
+                headers=headers
+            )
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+        
+        return response.json()
+    
+    elif source == "mostliked":
+        # Récupérer les playlists triées par nombre de likes
+        stmt = (
+            select(Playlists, Users.spotify_user_id, func.count(PlaylistLike.user_id).label('like_count'))
+            .join(Users, Playlists.author_id == Users.id)
+            .outerjoin(Playlists.likes_rel)
+            .group_by(Playlists.id, Users.spotify_user_id)
+            .order_by(func.count(PlaylistLike.user_id).desc())
+            .offset(start)
+            .limit(limit)
         )
-    responseJson = response.json()
+        results = db.execute(stmt).all()
+        
+        # Récupérer les playlists déjà likées par l'utilisateur courant
+        user_liked_ids = {
+            like.playlist_id 
+            for like in db.query(PlaylistLike.playlist_id).filter(
+                PlaylistLike.user_id == current_user.id
+            ).all()
+        }
+        
+        # Construire la réponse enrichie
+        return [
+            {
+                "id": playlist.id,
+                "title": playlist.title,
+                "descr": playlist.descr,
+                "duration": playlist.duration,
+                "redirection_service": playlist.redirection_service,
+                "author_id": str(playlist.author_id),
+                "author_name": author_name,
+                "like_count": like_count,
+                "liked": playlist.id in user_liked_ids
+            }
+            for playlist, author_name, like_count in results
+        ]
+    
+    elif source == "beemood":
+        beemood_playlists = db.query(Playlists).filter(
+            Playlists.author_id == current_user.id
+        ).offset(start).limit(limit).all()
+        return beemood_playlists
+    
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid source parameter. Must be 'beemood', 'spotify', or 'mostliked'"
+        )
+        
+@app.post("/playlist/{playlist_id}/like")
+async def like_playlist(
+    playlist_id: str,
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Permet à l'utilisateur courant de liker une playlist spécifiée par son ID.
+    """
+    # Vérifier si la playlist existe
+    playlist = db.query(Playlists).filter(Playlists.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    # Vérifier si l'utilisateur a déjà liké cette playlist
+    existing_like = db.query(PlaylistLike).filter(
+        PlaylistLike.playlist_id == playlist_id,
+        PlaylistLike.user_id == current_user.id
+    ).scalar()
+    
+    if existing_like:
+        raise HTTPException(status_code=400, detail="Playlist already liked by the user")
+    
+    # Créer un nouveau like
+    new_like = PlaylistLike(
+        playlist_id=playlist_id,
+        user_id=current_user.id
+    )
+    db.add(new_like)
+    db.commit()
+    
+    return {"detail": "Playlist liked successfully"}
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
-    return responseJson
-
-@app.get("/playlists-bdd")
-def get_bdd_playlists(current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
-    beemoodPlaylists = db.query(Playlists).filter(Playlists.author_id == current_user.id).all()
-    return beemoodPlaylists
+@app.delete("/playlist/{playlist_id}/like")
+async def unlike_playlist(
+    playlist_id: str,
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Permet à l'utilisateur courant de retirer son like d'une playlist spécifiée par son ID.
+    """
+    # Vérifier si le like existe
+    existing_like = db.query(PlaylistLike).filter(
+        PlaylistLike.playlist_id == playlist_id,
+        PlaylistLike.user_id == current_user.id
+    ).scalar()
+    
+    if not existing_like:
+        raise HTTPException(status_code=404, detail="Like not found for the user on this playlist")
+    
+    # Supprimer le like
+    db.delete(existing_like)
+    db.commit()
+    
+    return {"detail": "Playlist unliked successfully"}
