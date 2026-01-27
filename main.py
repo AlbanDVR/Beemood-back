@@ -425,10 +425,10 @@ async def get_playlists(
     elif source == "mostliked":
         # Récupérer les playlists triées par nombre de likes
         stmt = (
-            select(Playlists, Users.spotify_user_id, func.count(PlaylistLike.user_id).label('like_count'))
+            select(Playlists, func.count(PlaylistLike.user_id).label('like_count'))
             .join(Users, Playlists.author_id == Users.id)
             .outerjoin(Playlists.likes_rel)
-            .group_by(Playlists.id, Users.spotify_user_id)
+            .group_by(Playlists.id)
             .order_by(func.count(PlaylistLike.user_id).desc())
             .offset(start)
             .limit(limit)
@@ -445,18 +445,12 @@ async def get_playlists(
 
         # Construire la réponse enrichie
         return [
+            playlist.__dict__ |
             {
-                "id": playlist.id,
-                "title": playlist.title,
-                "descr": playlist.descr,
-                "duration": playlist.duration,
-                "redirection_service": playlist.redirection_service,
-                "author_id": str(playlist.author_id),
-                "author_name": author_name,
                 "like_count": like_count,
                 "liked": playlist.id in user_liked_ids
             }
-            for playlist, author_name, like_count in results
+            for playlist, like_count in results
         ]
 
     elif source == "beemood":
