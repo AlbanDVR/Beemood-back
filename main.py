@@ -665,3 +665,68 @@ async def get_user_stats(
     "number_of_connections": total_number_of_connections,
     "most_popular_music_type": favorite_music_type
     }
+
+@app.get("/profile")
+async def get_user_features(
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the username, profile picture, date of join, stats
+    """
+    #checking the existence of the user
+    user_profile = db.query(Users).filter(
+    Users.id == current_user.id
+    ).scalar()
+
+    if not user_profile:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    #refresh the authorization token for spotify
+    await refresh_token(db, current_user)
+
+    async with httpx.AsyncClient() as client:    
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}",
+        }
+
+        response = await client.get(f"https://api.spotify.com/v1/users/{current_user.spotify_user_id}", headers=headers)
+    
+    profile_json = response.json()
+
+    #get the user's spotify profile name
+    profile_name = profile_json["display_name"]
+
+    #get the user's spotify profile image
+    profile_image = profile_json["images"]
+
+    #handle the cases where there is no profile image
+    #if the user doesn't have a profile image, the profile_image field will be set to: ""
+    if profile_image == []:
+        profile_image = ""    
+    else:
+        profile_image = profile_image[0]["url"]
+    
+    #get the user's join date
+    join_date = user_profile.join_time
+
+    #get the user's stats
+    user_statistics = db.query(Stat).filter(
+    Stat.user_id == current_user.id
+    ).scalar()
+
+    if not user_statistics:
+        raise HTTPException(status_code=404, detail="No statistics for the user")
+    
+    return {
+    "profile_displayed_name":profile_name,
+    "profile_image": profile_image,
+    "join_date": join_date, 
+    "number_of_created_playlists": user_statistics.playlist_number,
+    "number_of_tracks": user_statistics.track_number,
+    "total_time_of_tracks": user_statistics.listening_time,
+    "number_of_connections": user_statistics.connection_number,
+    "most_popular_music_type": user_statistics.favorite_genre
+  }
+
+
