@@ -21,4 +21,3 @@ prompt = "Tu es un extracteur de données spécialisé pour Spotify. " \
 "Si la requête de l'utilisateur n'est pas en lien avec ceci, mais qu'elle reste tout de même en lien avec l'application, " \
 "réponds lui aussi normalement que possible (pas d'émoji). Si sa requête ne concerne pas l'application, dis lui " \
 "'Je suis désolé, je ne peux pas répondre à votre demande'." \
-
