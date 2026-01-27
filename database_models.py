@@ -1,5 +1,5 @@
 from sqlalchemy import Integer, Column, String, Date, ForeignKey, TIMESTAMP, text
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base 
@@ -23,6 +23,15 @@ class Users(Base):
     auth_token = Column("authtoken", String, nullable=True)
     # server_default permet d'utiliser le DEFAULT CURRENT_DATE de Postgres
     join_time = Column("jointime", Date, server_default=func.current_date())
+    liked_playlists = relationship("PlaylistLike", back_populates="user")
+
+class PlaylistLike(Base):
+    __tablename__ = "playlist_likes"
+    playlist_id = Column("playlist_id", String(255), ForeignKey("playlists.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+
+    playlist = relationship("Playlists", back_populates="likes_rel")
+    user = relationship("Users", back_populates="liked_playlists")
 
 class Playlists(Base):
     __tablename__ = "playlists"
@@ -37,6 +46,7 @@ class Playlists(Base):
     # Clés étrangères
     author_id = Column("author", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     service_name = Column("musicservice", String(255), ForeignKey("musicservices.name", ondelete="SET NULL"))
+    likes_rel = relationship("PlaylistLike", back_populates="playlist")
 
 class Stat(Base):
     __tablename__ = "stat"
