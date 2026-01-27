@@ -16,7 +16,7 @@ from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
 
 from database import get_db
-from database_models import Users, Playlists, PlaylistLike
+from database_models import Users, Playlists, PlaylistLike, Stat
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.sql import func
@@ -564,4 +564,81 @@ async def generate_response(request: ScriptRequest, current_user: Users = Depend
     return {
         "status": "success",
         "data": response.text
+    }
+
+@app.get("/stats")
+async def get_user_stats(
+    current_user: Users = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+  """
+  Returns a json containing all the statistics of an user
+
+  current_user: the user whose statistics are returned
+  """   
+
+  #checking the existence of the row in the stat table for the said user
+  user_statistics = db.query(Stat).filter(
+    Stat.user_id == current_user.id
+  ).scalar()
+
+  if not user_statistics:
+      raise HTTPException(status_code=404, detail="No statistics for the user")
+  
+  #returning the json with statistics of the user
+  return {
+    "number_of_created_playlists": user_statistics.playlist_number,
+    "number_of_tracks": user_statistics.track_number,
+    "total_time_of_tracks": user_statistics.listening_time,
+    "number_of_connections": user_statistics.connection_number,
+    "most_popular_music_type": user_statistics.favorite_genre
+  }
+
+@app.get("/community/stats")
+async def get_user_stats(
+    db: Session = Depends(get_db)
+):
+    """
+    Returns a json containing all the global statistics 
+    """ 
+
+    total_number_of_playlists = 0
+    total_number_of_tracks = 0    
+    total_time_of_tracks = 0
+    total_number_of_connections = 0
+    favorite_music_type = 0
+
+    favorite_music_type_dict = {}
+
+    all_stats = select(Stat)
+    all_stats_results = db.execute(all_stats).scalars()
+
+    for row in all_stats_results:
+        total_number_of_playlists += row.playlist_number
+        total_number_of_tracks += row.track_number    
+        total_time_of_tracks += row.listening_time
+        total_number_of_connections += row.connection_number
+
+        print(row.favorite_genre)
+        if row.favorite_genre in favorite_music_type_dict.keys():
+            favorite_music_type_dict[row.favorite_genre] += 1
+        else:
+            favorite_music_type_dict[row.favorite_genre] = 1
+
+    favorite_music_type = next(iter(favorite_music_type_dict))
+  
+    for key,value in favorite_music_type_dict.items():
+        # print(key)
+        # print(value)
+        # print(favorite_music_type_dict[favorite_music_type])
+        if value > favorite_music_type_dict[favorite_music_type]:
+            favorite_music_type = key
+    
+    #returning the json with statistics of the user
+    return {
+    "number_of_created_playlists": total_number_of_playlists,
+    "number_of_tracks": total_number_of_tracks,
+    "total_time_of_tracks": total_time_of_tracks,
+    "number_of_connections": total_number_of_connections,
+    "most_popular_music_type": favorite_music_type
     }

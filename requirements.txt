@@ -2,4 +2,4 @@ fastapi[standard]
 sqlalchemy 
 psycopg2-binary
 PyJWT
-google-generativeai
+google.generativeai
