@@ -25,6 +25,7 @@ from APIFeatures import user_connection, db_playlist_update
 from gemini_api import ScriptRequest, model
 
 from math import *
+from collections import Counter
 
 load_dotenv(dotenv_path=".env")
 
@@ -274,7 +275,7 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
 
             response_like = response_like.json()["items"]
 
-            if(len(response_like) < 50): # On vérifie que il reste des musiques
+            if len(response_like) < 50: # On vérifie que il reste des musiques
                 reste_tracks = False
 
             # Récupérer les artistes des tracks
@@ -316,49 +317,53 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
             i = 0
             while i < len(tracks_like_genre) and timer_like < int(info_playlist.duration) * 0.15 :
                 duration_track = tracks_like_genre[i]["duration_ms"]
-                if duration_track < 480000: # 8 minutes
+                if duration_track < 480000 and tracks_like_genre[i]["popularity"] > 50: # 8 minutes
                     uri_like_genre.append(tracks_like_genre[i]["uri"])
                     timer_like += duration_track
                     stats_track_number += 1
                 i += 1
 
-                # Appel titre spotify
+        # Appel titre spotify
         print("Tracks de spotify")
-        headers = {
-            "Authorization": f"Bearer {current_user.spotify_access_token}"
-        }
 
-        all_track=[]
-        for i in range(5):
+        offset = 0
+        timer_spot = 0
+        uri_spot_genre = []
+        while timer_spot < int(info_playlist.duration) - timer_like and offset < 1000 - 50:
+
+            headers = {
+                "Authorization": f"Bearer {current_user.spotify_access_token}"
+            }
+
             params = {
-                "q": f"genre{info_playlist.genre}",
+                "q": f"genre:\"{info_playlist.genre}\"",
                 "type": "track",
-                "offset": random.randint(0, 1000),
+                "offset": offset,
                 "limit": 50
             }
 
+            offset += 50
+
+            print(params)
             response = await client.get("https://api.spotify.com/v1/search", params=params, headers=headers)
 
             # Si on à une erreur d'appel api on la renvoie au front proprement
             if response.status_code not in [200, 201]:
                 raise HTTPException(status_code=response.status_code)
 
-            response = response.json()
-            all_track.extend(response["tracks"]["items"])
+            all_track = response.json()["tracks"]["items"]
 
-        # Récupération des tracks en fonction du temps
-        random.shuffle(all_track)
+            # Récupération des tracks en fonction du temps
+            random.shuffle(all_track)
 
-        timer_track = 0
-        i = 0
-        tracks = []
-        while timer_track < int(info_playlist.duration) - timer_like :
-            duration_ms = all_track[i]["duration_ms"]
-            if duration_ms < 480000: # 8 minutes
-                tracks.append(all_track[i]["uri"])
-                timer_track += duration_ms
-                stats_track_number += 1
-            i += 1
+            i = 0
+            while i < len(all_track) and timer_spot < int(info_playlist.duration) - timer_like :
+                duration_ms = all_track[i]["duration_ms"]
+                if duration_ms < 480000 and all_track[i]["popularity"] > 50: # 8 minutes
+                    uri_spot_genre.append(all_track[i]["uri"])
+                    timer_spot += duration_ms
+                    stats_track_number += 1
+                i += 1
 
         # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
         print("--Appel ajout playlist--")
@@ -368,8 +373,11 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
             "Content-Type": "application/json"
         }
 
-        tracks_total = tracks + uri_like_genre
+        tracks_total = uri_spot_genre + uri_like_genre
         random.shuffle(tracks_total)
+
+        if not tracks_total:
+            raise HTTPException(401, "Erreur, pas de track trouvé")
 
         payload = {
             "position": 0,
@@ -379,7 +387,7 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
         response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
         
         #updating the data base with the data
-        timer_total = timer_track + timer_like
+        timer_total = timer_spot + timer_like
         db_playlist_update(db, response_creation_playlist, info_playlist, current_user, timer_total, "Spotify", stats_track_number)
 
         # Si on à une erreur d'appel api on la renvoie au front proprement
