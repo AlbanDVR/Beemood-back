@@ -157,7 +157,7 @@ def db_playlist_update(db: Session,response_creation_playlist, info_playlist, cu
     #find the current favorite music type
     stmt_playlist = select(Playlists).where(Playlists.author_id == user_id)
     res = db.execute(stmt_playlist).fetchall()
-    print(res)
+
     playlist_type = {}
 
     for row in res:
