@@ -395,7 +395,7 @@ async def recuperation_playlist(info_playlist: PlaylistBase, current_user: Users
 @app.get("/playlist")
 async def get_playlists(
     source: str = "beemood",
-    limit: int = 10,
+    limit: int = 100,
     start: int = 0,
     current_user: Users = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -526,7 +526,7 @@ async def unlike_playlist(
     return {"detail": "Playlist unliked successfully"}
 
 
-@app.delete("/playlist/{playlist_id}/delete")
+@app.delete("/playlist/{playlist_id}")
 async def delete_playlist(
     playlist_id: str,
     current_user: Users = Depends(get_current_user),
@@ -555,7 +555,7 @@ async def delete_playlist(
 @app.post("/generate")
 async def generate_response(request: ScriptRequest, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
     # On construit la requête : on fournit d'abord les instructions, puis ensuite le texte à analyser
-    prompt = "Ton nom est Ernest. Tu es un assistant virtuel qui aide les utilisateurs à créer des playlists Spotify en analysant leurs demandes. Tu ne peux pas répondre à des requêtes hors sujet. Tu es une abeille. Tu ajoutes des \"Bzzz \" ou des onomatopées similaires ou des emojis abeille 🐝 dans tes réponses. Tu dois guider l'utilisateur pour créer la meilleure playlist possible en fonction de ses goûts musicaux, de la durée et du nom de la playlist souhaitée. Lorsque tu as toutes les informations nécessaires, tu renvoies après ton message un objet JSON bien formé contenant les clés 'name', 'genre', 'duration' en ms et 'tracks'. La clé name doit être un string contenant le nom de la playlist, si l'utilisateur n'en donne pas, génères en un. La clé genre doit être un string contenant le ou les genres de la playlist séparés par des virgules. La clé tracks doit contenir une liste de dictionnaires contenant une clé artist (un string) et une clé title (un string). Tu ne peux pas générer de markdown, uniquement du texte. Précède l'objet JSON par le texte \"PLAYLIST_DATA:\" pour que l'application puisse le repérer facilement. Reste plutôt concis dans tes messages. L'utilisateur peut également te donner ses artistes ou titres préférés, tu peux mélanger les genres dans une playlist ou l'utilisateur peut te demander d'inclure quelque chose en particulier."
+    prompt = "Ton nom est Ernest. Tu es un assistant virtuel qui aide les utilisateurs à créer des playlists Spotify en analysant leurs demandes. Tu ne peux pas répondre à des requêtes hors sujet. Tu es une abeille. Tu ajoutes des \"Bzzz \" ou des onomatopées similaires ou des emojis abeille 🐝 dans tes réponses. Tu dois guider l'utilisateur pour créer la meilleure playlist possible en fonction de ses goûts musicaux, de la durée et du nom de la playlist souhaitée. Lorsque tu as toutes les informations nécessaires, tu renvoies après ton message un objet JSON bien formé contenant les clés 'name', 'genre', 'duration' en ms et 'tracks'. La clé name doit être un string contenant le nom de la playlist, si l'utilisateur n'en donne pas, génères en un. La clé genre doit être un string contenant le ou les genres de la playlist séparés par des virgules. La clé tracks doit contenir une liste de dictionnaires contenant une clé artist (un string) et une clé title (un string). Tu ne peux pas générer de markdown, uniquement du texte. Précède l'objet JSON par le texte \"PLAYLIST_DATA:\" pour que l'application puisse le repérer facilement. Reste plutôt concis dans tes messages. L'utilisateur peut également te donner ses artistes ou titres préférés, tu peux mélanger les genres dans une playlist ou l'utilisateur peut te demander d'inclure quelque chose en particulier. Ajoute toujours un emoji abeille 🐝 à la fin des noms de playlists que tu génères."
     user_input = f"Instruction:\n {prompt}\n\nHistorique de la conversation:\n {request.history}\n\nScript/Texte à analyser:\n {request.script}"
         
     #Réponse renvoyée par l'API de Gemini
@@ -693,8 +693,9 @@ async def get_user_stats(
     "most_popular_music_type": favorite_music_type
     }
 
-@app.get("/profile")
+@app.get("/profile/{user_id}")
 async def get_user_features(
+    user_id: str,
     current_user: Users = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -703,7 +704,7 @@ async def get_user_features(
     """
     #checking the existence of the user
     user_profile = db.query(Users).filter(
-    Users.id == current_user.id
+    Users.id == user_id
     ).scalar()
 
     if not user_profile:
@@ -717,7 +718,7 @@ async def get_user_features(
             "Authorization": f"Bearer {current_user.spotify_access_token}",
         }
 
-        response = await client.get(f"https://api.spotify.com/v1/users/{current_user.spotify_user_id}", headers=headers)
+        response = await client.get(f"https://api.spotify.com/v1/users/{user_profile.spotify_user_id}", headers=headers)
     
     profile_json = response.json()
 
