@@ -345,7 +345,6 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
 
             offset += 50
 
-            print(params)
             response = await client.get("https://api.spotify.com/v1/search", params=params, headers=headers)
 
             # Si on à une erreur d'appel api on la renvoie au front proprement
@@ -466,7 +465,7 @@ async def get_playlists(
     elif source == "beemood":
         beemood_playlists = db.query(Playlists).filter(
             Playlists.author_id == current_user.id
-        ).offset(start).limit(limit).all()
+        ).order_by(Playlists.id.asc()).offset(start).limit(limit).all()
         return beemood_playlists
 
     else:
@@ -642,7 +641,6 @@ async def get_user_stats(
         total_time_of_tracks += row.listening_time
         total_number_of_connections += row.connection_number
 
-        print(row.favorite_genre)
         if row.favorite_genre in favorite_music_type_dict.keys():
             favorite_music_type_dict[row.favorite_genre] += 1
         else:
@@ -651,9 +649,6 @@ async def get_user_stats(
     favorite_music_type = next(iter(favorite_music_type_dict))
   
     for key,value in favorite_music_type_dict.items():
-        # print(key)
-        # print(value)
-        # print(favorite_music_type_dict[favorite_music_type])
         if value > favorite_music_type_dict[favorite_music_type]:
             favorite_music_type = key
     
