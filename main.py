@@ -79,14 +79,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     
     return user
 
-async def refresh_token(db : Session,current_user: Users):
-    print("--- Appel refresh token ---")
+async def refresh_token(db : Session, current_user: Users):
 
     time_expires_in = current_user.spotify_expires_in
     time_create_token = current_user.spotify_time_token_created
 
     if time_create_token + time_expires_in < time.time():
-        print("--- Refresh Token ---")
 
         auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
         auth_base64 = base64.b64encode(auth_string.encode()).decode()
@@ -135,9 +133,58 @@ async def refresh_token(db : Session,current_user: Users):
         
         db.commit()
         db.refresh(current_user)
-    
-    else :
-        print("--- No Refresh Token ---")
+
+async def creation_ajout_playlist(db : Session, current_user: Users, info_playlist: PlaylistBase, tracks_uri, duration_total, stats_track_number):
+
+    async with httpx.AsyncClient() as client:
+
+        # ----- APPEL SPOTIFY - Création Playlist -----
+
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "name": info_playlist.name,
+            "public": False,
+            "description": f"Playlist {info_playlist.name} - genre : {info_playlist.genre} - durée : {info_playlist.duration} - créée via Beemood"
+        }
+
+        response_creation_playlist = await client.post(f"https://api.spotify.com/v1/users/{current_user.spotify_user_id}/playlists", json=payload, headers=headers)
+
+        # Si on à une erreur d'appel api on la renvoie au front proprement
+        if response_creation_playlist.status_code not in [200, 201]:
+            raise HTTPException(status_code=response_creation_playlist.status_code, detail=response_creation_playlist.json())
+
+        response_creation_playlist = response_creation_playlist.json()
+
+
+        # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
+
+        headers = {
+            "Authorization": f"Bearer {current_user.spotify_access_token}",
+            "Content-Type": "application/json"
+        }
+
+        if not tracks_uri:
+            raise HTTPException(401, "Erreur, pas de track trouvé")
+
+        payload = {
+            "position": 0,
+            "uris": tracks_uri
+        }
+
+        response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
+
+        #updating the data base with the data
+        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, duration_total, "Spotify", stats_track_number)
+
+        # Si on à une erreur d'appel api on la renvoie au front proprement
+        if response_ajout_playlist.status_code not in [200, 201]:
+            raise HTTPException(status_code=response_ajout_playlist.status_code, detail=response_ajout_playlist.json())
+
+    return "ok"
 
 @app.get("/")
 def health_check():
@@ -218,42 +265,17 @@ async def login(user: UserBase, db: Session = Depends(get_db)):
     }
 
 @app.post("/playlist")
-async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
+async def recuperation_playlist(info_playlist: PlaylistBase, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
 
     await refresh_token(db, current_user)
 
     async with httpx.AsyncClient() as client:
-        
-        # ----- APPEL SPOTIFY - Création Playlist -----
-        print("--Appel création playlist--")
-        
-        headers = {
-            "Authorization": f"Bearer {current_user.spotify_access_token}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "name": info_playlist.name,
-            "public": False,
-            "description": f"Playlist {info_playlist.name} - genre : {info_playlist.genre} - durée : {info_playlist.duration} - créée via Beemood"
-        }
-
-        response_creation_playlist = await client.post(f"https://api.spotify.com/v1/users/{current_user.spotify_user_id}/playlists", json=payload, headers=headers)
-        
-        # Si on à une erreur d'appel api on la renvoie au front proprement
-        if response_creation_playlist.status_code not in [200, 201]:
-            raise HTTPException(status_code=response_creation_playlist.status_code, detail=response_creation_playlist.json())
-        
-        response_creation_playlist = response_creation_playlist.json()
 
         # ----- APPEL SPOTIFY - Get des tracks -----
-        print("--Appel des tracks --")
 
         stats_track_number = 0
 
         # Appel titre liké 15%
-        print("Tracks des titres likés")
-
         timer_like = 0
         offset = 0
         uri_like_genre = []
@@ -325,8 +347,6 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
                 i += 1
 
         # Appel titre spotify
-        print("Tracks de spotify")
-
         offset = 0
         timer_spot = 0
         uri_spot_genre = []
@@ -365,38 +385,12 @@ async def creation_playlist(info_playlist: PlaylistBase, current_user: Users = D
                     stats_track_number += 1
                 i += 1
 
-        # ----- APPEL SPOTIFY - Ajout dans la  Playlist -----
-        print("--Appel ajout playlist--")
-
-        headers = {
-            "Authorization": f"Bearer {current_user.spotify_access_token}",
-            "Content-Type": "application/json"
-        }
-
         tracks_total = uri_spot_genre + uri_like_genre
         random.shuffle(tracks_total)
 
-        if not tracks_total:
-            raise HTTPException(401, "Erreur, pas de track trouvé")
-
-        payload = {
-            "position": 0,
-            "uris": tracks_total
-        }
-
-        response_ajout_playlist = await client.post(f"https://api.spotify.com/v1/playlists/{response_creation_playlist['id']}/tracks", json=payload, headers=headers)
-        
-        #updating the data base with the data
         timer_total = timer_spot + timer_like
-        db_playlist_update(db, response_creation_playlist, info_playlist, current_user, timer_total, "Spotify", stats_track_number)
 
-        # Si on à une erreur d'appel api on la renvoie au front proprement
-        if response_ajout_playlist.status_code not in [200, 201]:
-            raise HTTPException(status_code=response_ajout_playlist.status_code, detail=response_ajout_playlist.json())
-        
-        response_ajout_playlist = response_ajout_playlist.json()
-
-        return "ok"
+        await creation_ajout_playlist(db, current_user, info_playlist,tracks_total, timer_total, stats_track_number)
 
 @app.get("/playlist")
 async def get_playlists(
@@ -559,9 +553,9 @@ async def delete_playlist(
     return {"detail": "Playlist deleted successfully"}
     
 @app.post("/generate")
-async def generate_response(request: ScriptRequest, current_user: Users = Depends(get_current_user)):
+async def generate_response(request: ScriptRequest, current_user: Users = Depends(get_current_user), db: Session = Depends(get_db)):
     # On construit la requête : on fournit d'abord les instructions, puis ensuite le texte à analyser
-    prompt = "Ton nom est Ernest. Tu es un assistant virtuel qui aide les utilisateurs à créer des playlists Spotify en analysant leurs demandes. Tu ne peux pas répondre à des requêtes hors sujet. Tu es une abeille. Tu ajoutes des \"Bzzz \" ou des onomatopées similaires ou des emojis abeille 🐝 dans tes réponses. Tu dois guider l'utilisateur pour créer la meilleure playlist possible en fonction de ses goûts musicaux et de la durée souhaitée. Lorsque tu as toutes les informations nécessaires, tu renvoies après ton message un objet JSON bien formé contenant les clés 'genre', 'duration' en ms et 'tracks'. Tu ne peux pas générer de markdown, uniquement du texte. Précède l'objet JSON par le texte \"PLAYLIST_DATA:\" pour que l'application puisse le repérer facilement. Reste plutôt concis dans tes messages. L'utilisateur peut également te donner ses artistes ou titres préférés, tu peux mélanger les genres dans une playlist ou l'utilisateur peut te demander d'inclure quelque chose en particulier."
+    prompt = "Ton nom est Ernest. Tu es un assistant virtuel qui aide les utilisateurs à créer des playlists Spotify en analysant leurs demandes. Tu ne peux pas répondre à des requêtes hors sujet. Tu es une abeille. Tu ajoutes des \"Bzzz \" ou des onomatopées similaires ou des emojis abeille 🐝 dans tes réponses. Tu dois guider l'utilisateur pour créer la meilleure playlist possible en fonction de ses goûts musicaux, de la durée et du nom de la playlist souhaitée. Lorsque tu as toutes les informations nécessaires, tu renvoies après ton message un objet JSON bien formé contenant les clés 'name', 'genre', 'duration' en ms et 'tracks'. La clé name doit être un string contenant le nom de la playlist, si l'utilisateur n'en donne pas, génères en un. La clé genre doit être un string contenant le ou les genres de la playlist séparés par des virgules. La clé tracks doit contenir une liste de dictionnaires contenant une clé artist (un string) et une clé title (un string). Tu ne peux pas générer de markdown, uniquement du texte. Précède l'objet JSON par le texte \"PLAYLIST_DATA:\" pour que l'application puisse le repérer facilement. Reste plutôt concis dans tes messages. L'utilisateur peut également te donner ses artistes ou titres préférés, tu peux mélanger les genres dans une playlist ou l'utilisateur peut te demander d'inclure quelque chose en particulier."
     user_input = f"Instruction:\n {prompt}\n\nHistorique de la conversation:\n {request.history}\n\nScript/Texte à analyser:\n {request.script}"
         
     #Réponse renvoyée par l'API de Gemini
@@ -574,16 +568,54 @@ async def generate_response(request: ScriptRequest, current_user: Users = Depend
         json_part = response.text.split("PLAYLIST_DATA:")[1].strip()
         try:
             playlist_data = json.loads(json_part)
+
             # Vous pouvez maintenant utiliser playlist_data['genre'], playlist_data['duration'], playlist_data['tracks']
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse playlist data from Gemini response")
+
+        async with httpx.AsyncClient() as client:
+
+            track_uri_total = []
+            for i in range(len(playlist_data["tracks"])):
+
+                headers = {
+                    "Authorization": f"Bearer {current_user.spotify_access_token}"
+                }
+
+                artist = playlist_data['tracks'][i]['artist']
+                title = playlist_data['tracks'][i]['title']
+
+                params = {
+                    "q": f"track:\"{title}\" artist:\"{artist}\"",
+                    "type": "track"
+                }
+
+                response_get = await client.get("https://api.spotify.com/v1/search", params=params, headers=headers)
+
+                # Si on à une erreur d'appel api on la renvoie au front proprement
+                if response_get.status_code not in [200, 201]:
+                    raise HTTPException(status_code=response_get.status_code)
+
+                response_get = response_get.json()
+
+                if response_get["tracks"]["items"]:
+                    track_uri_total.append(response_get["tracks"]["items"][0]["uri"])
+
+            info_playlist = {
+                "name": playlist_data["name"],
+                "genre": playlist_data["genre"],
+                "duration": str(playlist_data["duration"])
+            }
+
+            await creation_ajout_playlist(db, current_user, PlaylistBase(**info_playlist), track_uri_total, playlist_data["duration"], len(playlist_data["tracks"]))
+
         return {
-            "status": "success",
             "data": response.text.split("PLAYLIST_DATA:")[0].strip(),
-            "playlist_data": playlist_data
+            "playlist_data": info_playlist | {
+                "track_nb": len(playlist_data["tracks"])
+            }
         }
     return {
-            "status": "success",
             "data": response.text,
             "playlist_data": {}
     }
