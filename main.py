@@ -536,6 +536,19 @@ async def delete_playlist(
     """
     Allows the user to delete a playlist
     """
+    # Delete sur spotify
+    headers = {
+        "Authorization": f"Bearer {current_user.spotify_access_token}"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.delete(
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/followers",
+            headers=headers
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
 
     #checking the compliance of the user with the playlist ID
     playlist_delete = db.query(Playlists).filter(
