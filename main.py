@@ -397,6 +397,7 @@ async def get_playlists(
     source: str = "beemood",
     limit: int = 100,
     start: int = 0,
+    userId: str = None,
     current_user: Users = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -458,7 +459,7 @@ async def get_playlists(
 
     elif source == "beemood":
         beemood_playlists = db.query(Playlists).filter(
-            Playlists.author_id == current_user.id
+            Playlists.author_id == (userId if userId else current_user.id)
         ).order_by(Playlists.id.asc()).offset(start).limit(limit).all()
         return beemood_playlists
 
