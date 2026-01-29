@@ -426,8 +426,27 @@ async def get_playlists(
 
         return response.json()
 
-    elif source == "mostliked":
-        # Récupérer les playlists triées par nombre de likes
+    # Helper to get user's liked playlist IDs
+    def get_user_liked_ids():
+        return {
+            like.playlist_id
+            for like in db.query(PlaylistLike.playlist_id).filter(
+                PlaylistLike.user_id == current_user.id
+            ).all()
+        }
+
+    # Helper to enrich playlists with like data
+    def enrich_playlists(results):
+        user_liked_ids = get_user_liked_ids()
+        return [
+            playlist.__dict__ | {
+                "like_count": like_count,
+                "liked": playlist.id in user_liked_ids
+            }
+            for playlist, like_count in results
+        ]
+
+    if source == "mostliked":
         stmt = (
             select(Playlists, func.count(PlaylistLike.user_id).label('like_count'))
             .join(Users, Playlists.author_id == Users.id)
@@ -438,30 +457,23 @@ async def get_playlists(
             .limit(limit)
         )
         results = db.execute(stmt).all()
-
-        # Récupérer les playlists déjà likées par l'utilisateur courant
-        user_liked_ids = {
-            like.playlist_id
-            for like in db.query(PlaylistLike.playlist_id).filter(
-                PlaylistLike.user_id == current_user.id
-            ).all()
-        }
-
-        # Construire la réponse enrichie
-        return [
-            playlist.__dict__ |
-            {
-                "like_count": like_count,
-                "liked": playlist.id in user_liked_ids
-            }
-            for playlist, like_count in results
-        ]
+        return enrich_playlists(results)
 
     elif source == "beemood":
-        beemood_playlists = db.query(Playlists).filter(
-            Playlists.author_id == (userId if userId else current_user.id)
-        ).order_by(Playlists.id.asc()).offset(start).limit(limit).all()
-        return beemood_playlists
+        target_user_id = userId if userId else current_user.id
+        
+        stmt = (
+            select(Playlists, func.count(PlaylistLike.user_id).label('like_count'))
+            .where(Playlists.author_id == target_user_id)
+            .join(Users, Playlists.author_id == Users.id)
+            .outerjoin(Playlists.likes_rel)
+            .group_by(Playlists.id)
+            .order_by(Playlists.id.asc())
+            .offset(start)
+            .limit(limit)
+        )
+        results = db.execute(stmt).all()
+        return enrich_playlists(results)
 
     else:
         raise HTTPException(
