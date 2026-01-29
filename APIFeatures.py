@@ -1,5 +1,5 @@
 from sqlalchemy import select,update
-from database_models import Users, Playlists, MusicService, Stat
+from database_models import Users, Playlists, MusicService, Stat, Artistes, ArtisteDansPlaylist
 import time
 from sqlalchemy.orm import Session
 
@@ -91,7 +91,6 @@ def user_connection(db:Session, api_response:str):
     stmt = select(Users).where(Users.spotify_user_id == api_response.get("id"))
     user = db.execute(stmt).scalar()
     return user.join_time, user.id
-
 
 def db_playlist_update(db: Session,response_creation_playlist, info_playlist, current_user, time, service_used,tracks_number):
     """
@@ -186,7 +185,58 @@ def db_playlist_update(db: Session,response_creation_playlist, info_playlist, cu
     stat = db.execute(stmt)
     db.commit()
 
-    
+def db_artistes_update(db: Session, id_artistes, name_artiste, genre_artiste, popularity_artiste=0):
 
+    stmt = select(Artistes).where(Artistes.spotify_artiste_id == id_artistes)
+    user = db.execute(stmt).scalar()
+
+    #si la ligne est None: l'utilisateur est inexistant donc on l'ajoute
+    if (user == None):
+
+        new_connection = Artistes(
+            spotify_artiste_name = name_artiste,
+            spotify_artiste_id = id_artistes,
+            genre = genre_artiste,
+            popularity = popularity_artiste
+        )
+        #ajout de la connexion à la BDD
+        db.add(new_connection)
+        db.commit()
+
+        # Renvoie de l'uuid
+        db.refresh(new_connection)
+        return new_connection.id
+
+    #Si la ligne existe on met à jours le access_token et refresh_token
+    else:
+        stmt = (
+            update(Artistes)
+            .where(Artistes.spotify_artiste_id == id_artistes)
+            .values(popularity = popularity_artiste)
+        )
+
+        user_id = user.id
+        #éxecution du updateF
+        user = db.execute(stmt)
+        db.commit()
+
+        return user_id
+
+
+
+def db_artiste_dans_playlist_update(db: Session, id_artistes, id_playlist):
+    stmt = select(ArtisteDansPlaylist).where(ArtisteDansPlaylist.artist_id == id_artistes, ArtisteDansPlaylist.playlist_id == id_playlist)
+    user = db.execute(stmt).scalar()
+
+    #si la ligne est None: l'utilisateur est inexistant donc on l'ajoute
+    if (user == None):
+
+        new_connection = ArtisteDansPlaylist(
+            artist_id = id_artistes,
+            playlist_id = id_playlist
+        )
+        #ajout de la connexion à la BDD
+        db.add(new_connection)
+        db.commit()
 
 

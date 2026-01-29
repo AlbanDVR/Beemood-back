@@ -13,16 +13,18 @@ import base64
 import httpx
 import json
 
+from sqlalchemy.sql.sqltypes import NULLTYPE
+
 from schemas.user import UserBase, LoginResponse
 from schemas.playlist import PlaylistBase
 
 from database import get_db
-from database_models import Users, Playlists, PlaylistLike, Stat
+from database_models import Users, Playlists, PlaylistLike, Stat, ArtisteDansPlaylist, Artistes
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.sql import func
 
-from APIFeatures import user_connection, db_playlist_update
+from APIFeatures import user_connection, db_playlist_update, db_artistes_update, db_artiste_dans_playlist_update
 from gemini_api import ScriptRequest, model
 
 from math import *
@@ -134,7 +136,7 @@ async def refresh_token(db : Session, current_user: Users):
         db.commit()
         db.refresh(current_user)
 
-async def creation_ajout_playlist(db : Session, current_user: Users, info_playlist: PlaylistBase, tracks_uri, duration_total, stats_track_number):
+async def creation_ajout_playlist(db : Session, current_user: Users, info_playlist: PlaylistBase, tracks_uri, duration_total, stats_track_number, id_artist):
 
     async with httpx.AsyncClient() as client:
 
@@ -179,6 +181,10 @@ async def creation_ajout_playlist(db : Session, current_user: Users, info_playli
 
         #updating the data base with the data
         db_playlist_update(db, response_creation_playlist, info_playlist, current_user, duration_total, "Spotify", stats_track_number)
+
+
+        for i in range(len(id_artist)):
+            db_artiste_dans_playlist_update(db, id_artist[i], response_creation_playlist["id"])
 
         # Si on à une erreur d'appel api on la renvoie au front proprement
         if response_ajout_playlist.status_code not in [200, 201]:
@@ -273,6 +279,7 @@ async def recuperation_playlist(info_playlist: PlaylistBase, current_user: Users
 
         # ----- APPEL SPOTIFY - Get des tracks -----
 
+        id_artist = []
         stats_track_number = 0
 
         # Appel titre liké 15%
@@ -344,13 +351,79 @@ async def recuperation_playlist(info_playlist: PlaylistBase, current_user: Users
                     uri_like_genre.append(tracks_like_genre[i]["uri"])
                     timer_like += duration_track
                     stats_track_number += 1
+
+                    for j in range(len(tracks_like_genre[i]["artists"])):
+                        artist = tracks_like_genre[i]["artists"][j]
+                        user_id = db_artistes_update(db, artist["id"], artist["name"], info_playlist.genre)
+
+                        if user_id not in id_artist:
+                            id_artist.append(user_id)
+
+                i += 1
+
+        # Appel titre artiste most famous 10%
+        artistes = db.query(Artistes).filter(Artistes.genre == info_playlist.genre).all()
+        bool_artiste = False
+        if len(artistes) != 0:
+            artiste_fame = artistes[random.randint(0, len(artistes))]
+            bool_artiste = True
+            print(artiste_fame.spotify_artiste_name)
+
+        timer_fame = 0
+        offset = 0
+        uri_fame_genre = []
+        reste_tracks = True
+        while timer_fame < int(info_playlist.duration) * 0.10 and reste_tracks == True and bool_artiste:
+
+            # Appelle des tracks de l'artiste et de genre
+            headers = {
+                "Authorization": f"Bearer {current_user.spotify_access_token}"
+            }
+
+            params = {
+                "q": f"artist:\"{artiste_fame.spotify_artiste_id}\" genre:\"{info_playlist.genre}\"",
+                "type": "track",
+                "offset": offset,
+                "limit": 50
+            }
+
+            offset += 50
+
+            response = await client.get("https://api.spotify.com/v1/search", params=params, headers=headers)
+
+            # Si on à une erreur d'appel api on la renvoie au front proprement
+            if response.status_code not in [200, 201]:
+                raise HTTPException(status_code=response.status_code)
+
+            all_track = response.json()["tracks"]["items"]
+
+            # Récupération des tracks en fonction du temps
+            random.shuffle(all_track)
+
+            if len(response_like) < 50: # On vérifie que il reste des musiques
+                reste_tracks = False
+
+            i = 0
+            while i < len(all_track) and timer_fame < int(info_playlist.duration) * 0.10 :
+                duration_track = all_track[i]["duration_ms"]
+                if duration_track < 480000 and all_track[i]["popularity"] > 50: # 8 minutes
+                    uri_fame_genre.append(all_track[i]["uri"])
+                    timer_fame += duration_track
+                    stats_track_number += 1
+
+                    for j in range(len(all_track[i]["artists"])):
+                        artist = all_track[i]["artists"][j]
+                        user_id = db_artistes_update(db, artist["id"], artist["name"], info_playlist.genre)
+
+                        if user_id not in id_artist:
+                            id_artist.append(user_id)
                 i += 1
 
         # Appel titre spotify
         offset = 0
         timer_spot = 0
         uri_spot_genre = []
-        while timer_spot < int(info_playlist.duration) - timer_like and offset < 1000 - 50:
+        while timer_spot < int(info_playlist.duration) - timer_like - timer_fame and offset < 1000 - 50:
 
             headers = {
                 "Authorization": f"Bearer {current_user.spotify_access_token}"
@@ -377,20 +450,28 @@ async def recuperation_playlist(info_playlist: PlaylistBase, current_user: Users
             random.shuffle(all_track)
 
             i = 0
-            while i < len(all_track) and timer_spot < int(info_playlist.duration) - timer_like :
+            while i < len(all_track) and timer_spot < int(info_playlist.duration) - timer_like - timer_fame :
                 duration_ms = all_track[i]["duration_ms"]
                 if duration_ms < 480000 and all_track[i]["popularity"] > 50: # 8 minutes
                     uri_spot_genre.append(all_track[i]["uri"])
                     timer_spot += duration_ms
                     stats_track_number += 1
+
+                    for j in range(len(all_track[i]["artists"])):
+                        artist = all_track[i]["artists"][j]
+                        user_id = db_artistes_update(db, artist["id"], artist["name"], info_playlist.genre)
+
+                        if user_id not in id_artist:
+                            id_artist.append(user_id)
+
                 i += 1
 
         tracks_total = uri_spot_genre + uri_like_genre
         random.shuffle(tracks_total)
 
-        timer_total = timer_spot + timer_like
+        timer_total = timer_spot + timer_like + timer_fame
 
-        await creation_ajout_playlist(db, current_user, info_playlist,tracks_total, timer_total, stats_track_number)
+        await creation_ajout_playlist(db, current_user, info_playlist, tracks_total, timer_total, stats_track_number, id_artist)
 
 @app.get("/playlist")
 async def get_playlists(
@@ -500,6 +581,13 @@ async def like_playlist(
     db.add(new_like)
     db.commit()
 
+    # Augmente la popularité de tous les artistes
+    artiste_dans_playlist = db.query(ArtisteDansPlaylist).filter(ArtisteDansPlaylist.playlist_id == playlist_id).all()
+    for elem in artiste_dans_playlist :
+        artiste = db.query(Artistes).filter(Artistes.id == elem.artist_id).scalar()
+        db_artistes_update(db, artiste.spotify_artiste_id, artiste.spotify_artiste_name, artiste.genre, int(artiste.popularity) + 1)
+
+
     return {"detail": "Playlist liked successfully"}
 
 @app.delete("/playlist/{playlist_id}/like")
@@ -523,6 +611,12 @@ async def unlike_playlist(
     # Supprimer le like
     db.delete(existing_like)
     db.commit()
+
+    # Diminue la popularité de tous les artistes
+    artiste_dans_playlist = db.query(ArtisteDansPlaylist).filter(ArtisteDansPlaylist.playlist_id == playlist_id).all()
+    for elem in artiste_dans_playlist :
+        artiste = db.query(Artistes).filter(Artistes.id == elem.artist_id).scalar()
+        db_artistes_update(db, artiste.spotify_artiste_id, artiste.spotify_artiste_name, artiste.genre, int(artiste.popularity) - 1)
 
     return {"detail": "Playlist unliked successfully"}
 

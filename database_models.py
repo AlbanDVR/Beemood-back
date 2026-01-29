@@ -62,3 +62,19 @@ class Stat(Base):
 
     # foreign key
     user_id = Column("userid", UUID(as_uuid=True), ForeignKey("users.id",ondelete="CASCADE"))
+
+class Artistes(Base):
+    __tablename__ = "artistes"
+
+    id = Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    spotify_artiste_name = Column("spotifyartistename", String(255))
+    spotify_artiste_id = Column("spotifyartisteid", String(255))
+    genre = Column("genre", String(255))
+    popularity = Column("popularity", String(255))
+
+class ArtisteDansPlaylist(Base):
+    __tablename__ = "artistedansplaylist"
+
+    artist_id = Column("artistid", UUID(as_uuid=True), ForeignKey("artistes.id",ondelete="CASCADE"), primary_key=True)
+    playlist_id = Column("playlistid", String(255), ForeignKey("playlists.id",ondelete="CASCADE"), primary_key=True)
+
