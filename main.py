@@ -786,7 +786,7 @@ async def get_user_stats(
     total_number_of_tracks = 0    
     total_time_of_tracks = 0
     total_number_of_connections = 0
-    favorite_music_type = 0
+    favorite_music_type = ""
 
     favorite_music_type_dict = {}
 
@@ -799,16 +799,19 @@ async def get_user_stats(
         total_time_of_tracks += row.listening_time
         total_number_of_connections += row.connection_number
 
-        if row.favorite_genre in favorite_music_type_dict.keys():
-            favorite_music_type_dict[row.favorite_genre] += 1
-        else:
-            favorite_music_type_dict[row.favorite_genre] = 1
+        if row.favorite_genre != None:
 
-    favorite_music_type = next(iter(favorite_music_type_dict))
-  
-    for key,value in favorite_music_type_dict.items():
-        if value > favorite_music_type_dict[favorite_music_type]:
-            favorite_music_type = key
+            if row.favorite_genre in favorite_music_type_dict.keys():
+                favorite_music_type_dict[row.favorite_genre] += 1
+            else:
+                favorite_music_type_dict[row.favorite_genre] = 1
+
+    if favorite_music_type_dict != {}:
+        favorite_music_type = next(iter(favorite_music_type_dict))
+    
+        for key,value in favorite_music_type_dict.items():
+            if value > favorite_music_type_dict[favorite_music_type]:
+                favorite_music_type = key
     
     #returning the json with statistics of the user
     return {

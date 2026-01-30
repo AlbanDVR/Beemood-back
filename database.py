@@ -6,14 +6,13 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=".env")
 
-#mettre dans un .env
 DATABASE_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
 POSTGRES_SCHEMA = os.getenv("POSTGRES_SCHEMA")
 
 connect_args = {}
 if POSTGRES_SCHEMA:
-    # Set the default schema for this connection (search_path)
     connect_args["options"] = f"-csearch_path={POSTGRES_SCHEMA}"
+#définir l'ensemble de tables du postgresql sur lequel nous voulons agir
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
 #engine permet la communication avec la base de données postgresSQL
