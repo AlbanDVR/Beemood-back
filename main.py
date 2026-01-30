@@ -28,7 +28,6 @@ from APIFeatures import user_connection, db_playlist_update, db_artistes_update,
 from gemini_api import ScriptRequest, model
 
 from math import *
-from collections import Counter
 
 load_dotenv(dotenv_path=".env")
 
@@ -696,6 +695,7 @@ async def generate_response(request: ScriptRequest, current_user: Users = Depend
         async with httpx.AsyncClient() as client:
 
             track_uri_total = []
+            id_artiste_total = []
             for i in range(len(playlist_data["tracks"])):
 
                 headers = {
@@ -721,13 +721,19 @@ async def generate_response(request: ScriptRequest, current_user: Users = Depend
                 if response_get["tracks"]["items"]:
                     track_uri_total.append(response_get["tracks"]["items"][0]["uri"])
 
+                    for j in range(len(response_get["tracks"]["items"][0]["artists"])):
+                        user_id = db_artistes_update(db, response_get["tracks"]["items"][0]["artists"][j]["id"], response_get["tracks"]["items"][0]["artists"][j]["name"], playlist_data['genre'])
+
+                        if user_id not in id_artiste_total:
+                             id_artiste_total.append(user_id)
+
             info_playlist = {
                 "name": playlist_data["name"],
                 "genre": playlist_data["genre"],
                 "duration": str(playlist_data["duration"])
             }
 
-            await creation_ajout_playlist(db, current_user, PlaylistBase(**info_playlist), track_uri_total, playlist_data["duration"], len(playlist_data["tracks"]))
+            await creation_ajout_playlist(db, current_user, PlaylistBase(**info_playlist), track_uri_total, playlist_data["duration"], len(playlist_data["tracks"]), id_artiste_total)
 
         return {
             "data": response.text.split("PLAYLIST_DATA:")[0].strip(),
