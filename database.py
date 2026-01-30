@@ -15,7 +15,7 @@ if POSTGRES_SCHEMA:
     # Set the default schema for this connection (search_path)
     connect_args["options"] = f"-csearch_path={POSTGRES_SCHEMA}"
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
 #engine permet la communication avec la base de données postgresSQL
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
